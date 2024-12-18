@@ -209,7 +209,7 @@ async function testAPI() {
   try {
     const testOrder = {
       id: '6095205400898',  // Use your latest order ID
-      note: 'Test note from API'
+      note: 'Test note from API 2'
     };
     
     console.log('Testing API with order:', testOrder);

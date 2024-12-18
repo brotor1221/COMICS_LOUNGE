@@ -194,7 +194,7 @@ async function updateOrderWithNote(orderId, note) {
 async function testAPI() {
   try {
     const testOrder = {
-      id: '6095149498690',  // Use your latest order ID
+      id: '6095205400898',  // Use your latest order ID
       note: 'Test note from API'
     };
     

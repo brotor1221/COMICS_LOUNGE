@@ -128,89 +128,51 @@ async function getOrderDetails(token) {
   });
 }
 
+const axios = require('axios');
+
 async function updateOrderWithNote(orderId, note) {
-  console.log('Starting updateOrderWithNote function...');
-  
-  // Using the exact format from Shopify's webhook data
-  const graphqlQuery = {
-    query: `mutation orderUpdate($input: OrderInput!) {
-      orderUpdate(input: $input) {
-        order {
-          id
-          note
+    const graphqlQuery = {
+        query: `
+            mutation updateOrderNote($input: OrderInput!) {
+                orderUpdate(input: $input) {
+                    order {
+                        id
+                        note
+                    }
+                    userErrors {
+                        message
+                        field
+                    }
+                }
+            }
+        `,
+        variables: {
+            input: {
+                id: `gid://shopify/Order/${orderId}`,
+                note: note
+            }
         }
-        userErrors {
-          field
-          message
+    };
+
+    const url = `https://${process.env.SHOP_DOMAIN}/admin/api/2024-01/graphql.json`;
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': process.env.ADMIN_API_ACCESS_TOKEN
+    };
+
+    try {
+        const response = await axios.post(url, graphqlQuery, { headers });
+        if (response.data.errors) {
+            throw new Error(JSON.stringify(response.data.errors));
         }
-      }
-    }`,
-    variables: {
-      input: {
-        id: `gid://shopify/Order/${orderId}`,
-        note: note
-      }
+        const orderUpdate = response.data.data.orderUpdate;
+        if (orderUpdate.userErrors && orderUpdate.userErrors.length > 0) {
+            throw new Error(JSON.stringify(orderUpdate.userErrors));
+        }
+        return orderUpdate;
+    } catch (error) {
+        throw error;
     }
-  };
-
-  const options = {
-    hostname: process.env.SHOP_DOMAIN,
-    path: '/admin/api/2024-01/graphql.json',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': process.env.ADMIN_API_ACCESS_TOKEN
-    }
-  };
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(options, (res) => {
-      let data = '';
-      
-      res.on('data', chunk => {
-        data += chunk;
-        console.log('Receiving data chunk:', chunk.toString());
-      });
-
-      res.on('end', () => {
-        try {
-          const response = JSON.parse(data);
-          console.log('GraphQL Response:', response);
-          
-          if (response.data?.orderUpdate?.order?.note) {
-            console.log('✅ Order note updated successfully to:', response.data.orderUpdate.order.note);
-            resolve(response.data.orderUpdate);
-          } else {
-            console.error('❌ Failed to update order note:', response);
-            reject(new Error('Failed to update order note'));
-          }
-        } catch (error) {
-          console.error('❌ Error parsing response:', error);
-          reject(error);
-        }
-      });
-    });
-
-    req.on('error', (error) => {
-      console.error('❌ Request error:', error);
-      reject(error);
-    });
-
-    const requestBody = JSON.stringify(graphqlQuery);
-    console.log('📝 Sending GraphQL mutation for order:', orderId);
-    
-    req.end(requestBody);  // This combines req.write() and req.end()
-
-    req.write(requestBody, (err) => {
-        if (err) {
-          console.error('Error writing request:', err);
-          reject(err);
-          return;
-        }
-        console.log('Request body written successfully');
-        req.end();
-      });
-  });
 }
 
 // Add this helper function to test the API directly

@@ -234,13 +234,13 @@ async function retryOperation(operation, maxAttempts = 3) {
 
 app.post('/webhook/orders-create', async (req, res) => {
   console.log('\n🔔 NEW WEBHOOK REQUEST');
-  console.log(req.body);
+  
   // Send immediate response to Shopify
   res.status(200).send('OK');
 
   try {
     const webhookData = JSON.parse(req.body.toString('utf8'));
-    
+    console.log(webhookData);
     // Skip test webhooks
     if (webhookData.test === true) {
       console.log('📝 Skipping test webhook');

@@ -162,6 +162,7 @@ async function updateOrderWithNote(orderId, note) {
 
     try {
         const response = await axios.post(url, graphqlQuery, { headers });
+        console.log(response);
         if (response.data.errors) {
             throw new Error(JSON.stringify(response.data.errors));
         }

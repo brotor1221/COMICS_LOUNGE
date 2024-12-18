@@ -201,6 +201,7 @@ async function updateOrderWithNote(orderId, note) {
     console.log('📝 Sending GraphQL mutation for order:', orderId);
     req.write(requestBody);
     req.end();
+    res.status(200).send('OK');
   });
 }
 
@@ -250,7 +251,7 @@ app.post('/webhook/orders-create', async (req, res) => {
   console.log('\n🔔 NEW WEBHOOK REQUEST');
   
   // Send immediate response to Shopify
-  res.status(200).send('OK');
+  
 
   try {
     const webhookData = JSON.parse(req.body.toString('utf8'));

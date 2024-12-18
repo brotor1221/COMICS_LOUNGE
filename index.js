@@ -172,6 +172,7 @@ async function updateOrderWithNote(orderId, note) {
         }
         return orderUpdate;
     } catch (error) {
+        console.log(error);
         throw error;
     }
 }

@@ -129,67 +129,80 @@ async function getOrderDetails(token) {
 }
 
 async function updateOrderWithNote(orderId, note) {
-    console.log('Starting updateOrderWithNote function...');
-    
-    const graphqlQuery = {
-      query: "mutation updateOrderNote($input: OrderInput!) { orderUpdate(input: $input) { order { id note } userErrors { message field } } }",
-      variables: {
-        input: {
-          id: `gid://shopify/Order/${orderId}`,
-          note: note
+  console.log('Starting updateOrderWithNote function...');
+  
+  // Using the exact format from Shopify's webhook data
+  const graphqlQuery = {
+    query: `mutation orderUpdate($input: OrderInput!) {
+      orderUpdate(input: $input) {
+        order {
+          id
+          note
+        }
+        userErrors {
+          field
+          message
         }
       }
-    };
-  
-    const options = {
-      protocol: 'https:',  // Add protocol
-      hostname: process.env.SHOP_DOMAIN,
-      path: '/admin/api/2024-01/graphql.json',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': process.env.ADMIN_API_ACCESS_TOKEN
+    }`,
+    variables: {
+      input: {
+        id: `gid://shopify/Order/${orderId}`,
+        note: note
       }
-    };
-  
-    return new Promise((resolve, reject) => {
-      console.log(`Making request to: https://${options.hostname}${options.path}`);
+    }
+  };
+
+  const options = {
+    hostname: process.env.SHOP_DOMAIN,
+    path: '/admin/api/2024-01/graphql.json',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': process.env.ADMIN_API_ACCESS_TOKEN
+    }
+  };
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      let data = '';
       
-      const req = https.request(options, (res) => {
-        let data = '';
-        
-        res.on('data', chunk => {
-          data += chunk;
-          console.log('Receiving data chunk');
-        });
-  
-        res.on('end', () => {
-          console.log('Response completed');
-          try {
-            const response = JSON.parse(data);
-            console.log('Response:', response);
-            if (response.errors) {
-              reject(new Error(JSON.stringify(response.errors)));
-            } else {
-              resolve(response.data.orderUpdate);
-            }
-          } catch (error) {
-            reject(error);
+      res.on('data', chunk => {
+        data += chunk;
+        console.log('Receiving data chunk:', chunk.toString());
+      });
+
+      res.on('end', () => {
+        try {
+          const response = JSON.parse(data);
+          console.log('GraphQL Response:', response);
+          
+          if (response.data?.orderUpdate?.order?.note) {
+            console.log('✅ Order note updated successfully to:', response.data.orderUpdate.order.note);
+            resolve(response.data.orderUpdate);
+          } else {
+            console.error('❌ Failed to update order note:', response);
+            reject(new Error('Failed to update order note'));
           }
-        });
+        } catch (error) {
+          console.error('❌ Error parsing response:', error);
+          reject(error);
+        }
       });
-  
-      req.on('error', (error) => {
-        console.error('Request error:', error);
-        reject(error);
-      });
-  
-      const requestBody = JSON.stringify(graphqlQuery);
-      console.log('Sending GraphQL mutation:', requestBody);
-      req.write(requestBody);
-      req.end();
     });
-  }
+
+    req.on('error', (error) => {
+      console.error('❌ Request error:', error);
+      reject(error);
+    });
+
+    const requestBody = JSON.stringify(graphqlQuery);
+    console.log('📝 Sending GraphQL mutation for order:', orderId);
+    req.write(requestBody);
+    req.end();
+  });
+}
+
 // Add this helper function to test the API directly
 async function testAPI() {
   try {

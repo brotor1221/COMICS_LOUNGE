@@ -281,9 +281,10 @@ app.post('/webhook/orders-create', async (req, res) => {
     try {
       const note = `Verification Code: A${Math.floor(10000000 + Math.random() * 90000000)}`;
       console.log(`📝 Generated note for order ${orderId}: ${note}`);
-      
-      await updateOrderWithNote(orderId, note);
-      console.log('✅ Order note updated successfully');
+      setTimeout(async () => { 
+        await updateOrderWithNote(orderId, note);
+        console.log('✅ Order note updated successfully');
+      }, 10000);
     } finally {
       clearInterval(keepAlive);
     }

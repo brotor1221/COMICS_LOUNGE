@@ -198,8 +198,18 @@ async function updateOrderWithNote(orderId, note) {
 
     const requestBody = JSON.stringify(graphqlQuery);
     console.log('📝 Sending GraphQL mutation for order:', orderId);
-    req.write(requestBody);
-    req.end();
+    
+    req.end(requestBody);  // This combines req.write() and req.end()
+
+    req.write(requestBody, (err) => {
+        if (err) {
+          console.error('Error writing request:', err);
+          reject(err);
+          return;
+        }
+        console.log('Request body written successfully');
+        req.end();
+      });
   });
 }
 

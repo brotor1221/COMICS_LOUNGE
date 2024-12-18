@@ -1,0 +1,21 @@
+{
+    "name": "shopify-webhook-handler",
+    "version": "1.0.0",
+    "description": "A serverless function to handle Shopify webhooks and update order notes.",
+    "main": "index.js",
+    "scripts": {
+      "start": "vercel dev",
+      "deploy": "vercel --prod"
+    },
+    "dependencies": {
+      "@shopify/shopify-api": "^11.6.1",
+      "dotenv": "^16.0.3",
+      "express": "^4.21.2"
+    },
+    "engines": {
+      "node": ">=14.0.0"
+    },
+    "author": "Your Name",
+    "license": "MIT"
+  }
+  

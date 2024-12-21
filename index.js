@@ -46,10 +46,8 @@ try {
 let db, codesCollection;
 
 async function connectToMongoDB() {
-  const client = new MongoClient(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  });
+    const client = new MongoClient(process.env.MONGODB_URI);
+
 
   try {
     await client.connect();

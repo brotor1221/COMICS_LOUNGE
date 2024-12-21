@@ -49,27 +49,22 @@ let codesCollection;
 
 async function connectToMongoDB() {
   if (!client) {
-    client = new MongoClient(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    client = new MongoClient(process.env.MONGODB_URI);
   }
 
-  if (!client.isConnected()) {
-    try {
-      await client.connect();
-      db = client.db(process.env.MONGODB_DB_NAME);
-      codesCollection = db.collection('codes');
-      console.log('✅ Connected to MongoDB');
-    } catch (error) {
-      console.error('❌ MongoDB connection error:', error);
-    }
+  try {
+    await client.connect();
+    db = client.db(process.env.MONGODB_DB_NAME);
+    codesCollection = db.collection('codes');
+    console.log('✅ Connected to MongoDB');
+  } catch (error) {
+    console.error('❌ MongoDB connection error:', error);
   }
 }
 
 // Ensure MongoDB connection before handling requests
 app.use(async (req, res, next) => {
-  if (!client || !client.isConnected()) {
+  if (!client || !client.topology || !client.topology.isConnected()) {
     await connectToMongoDB();
   }
   next();

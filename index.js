@@ -43,23 +43,37 @@ try {
 }
 
 // MongoDB Connection
-let db, codesCollection;
+let client;
+let db;
+let codesCollection;
 
 async function connectToMongoDB() {
-    const client = new MongoClient(process.env.MONGODB_URI);
+  if (!client) {
+    client = new MongoClient(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+  }
 
-
-  try {
-    await client.connect();
-    db = client.db(process.env.MONGODB_DB_NAME);
-    codesCollection = db.collection('codes');
-    console.log('✅ Connected to MongoDB');
-  } catch (error) {
-    console.error('❌ MongoDB connection error:', error);
+  if (!client.isConnected()) {
+    try {
+      await client.connect();
+      db = client.db(process.env.MONGODB_DB_NAME);
+      codesCollection = db.collection('codes');
+      console.log('✅ Connected to MongoDB');
+    } catch (error) {
+      console.error('❌ MongoDB connection error:', error);
+    }
   }
 }
 
-connectToMongoDB();
+// Ensure MongoDB connection before handling requests
+app.use(async (req, res, next) => {
+  if (!client || !client.isConnected()) {
+    await connectToMongoDB();
+  }
+  next();
+});
 
 function verifyShopifyWebhook(req) {
   const hmacHeader = req.headers['x-shopify-hmac-sha256'];

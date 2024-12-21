@@ -1,11 +1,10 @@
 require('dotenv').config();
 const crypto = require('crypto');
 const express = require('express');
+const { MongoClient } = require('mongodb');
 require('@shopify/shopify-api/adapters/node');
 const { shopifyApi, ApiVersion } = require('@shopify/shopify-api');
 const https = require('https');
-const Shopify = require('@shopify/shopify-api').Shopify;
-const { RestClient } = require('@shopify/shopify-api/rest/admin/2024-01');
 
 const app = express();
 const DEBUG = true;
@@ -15,7 +14,7 @@ app.use('/webhook/orders-create', express.raw({ type: 'application/json' }));
 
 // Debug: Log Environment Variables
 console.log('🔍 ENVIRONMENT VARIABLES CHECK:');
-['API_KEY', 'API_SECRET_KEY', 'ADMIN_API_ACCESS_TOKEN', 'SHOP_DOMAIN', 'HOST_NAME'].forEach((key) => {
+['API_KEY', 'API_SECRET_KEY', 'ADMIN_API_ACCESS_TOKEN', 'SHOP_DOMAIN', 'HOST_NAME', 'MONGODB_URI', 'MONGODB_DB_NAME'].forEach((key) => {
   console.log(`${key}:`, process.env[key] ? 'Loaded' : '❌ Missing');
 });
 
@@ -43,16 +42,37 @@ try {
   console.error('❌ Error initializing Shopify API:', error.message);
 }
 
+// MongoDB Connection
+let db, codesCollection;
+
+async function connectToMongoDB() {
+  const client = new MongoClient(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
+
+  try {
+    await client.connect();
+    db = client.db(process.env.MONGODB_DB_NAME);
+    codesCollection = db.collection('codes');
+    console.log('✅ Connected to MongoDB');
+  } catch (error) {
+    console.error('❌ MongoDB connection error:', error);
+  }
+}
+
+connectToMongoDB();
+
 function verifyShopifyWebhook(req) {
   const hmacHeader = req.headers['x-shopify-hmac-sha256'];
-  
+
   if (!hmacHeader || !req.body) {
     console.error('❌ Missing HMAC header or request body');
     return false;
   }
 
   const bodyStr = req.body.toString('utf8');
-  
+
   const generatedHash = crypto
     .createHmac('sha256', process.env.API_SECRET_KEY)
     .update(bodyStr)
@@ -65,74 +85,24 @@ function verifyShopifyWebhook(req) {
   return hmacHeader === generatedHash;
 }
 
-// Simple delay function
-const delay = (ms) => new Promise((resolve, reject) => {
-  console.log(`Starting ${ms}ms delay...`);
-  const timeout = setTimeout(() => {
-    console.log(`${ms}ms delay completed`);
-    resolve();
-  }, ms);
-  
-  // Add error handling for the timeout
-  timeout.unref();
-});
+// Function to generate a unique code
+async function generateUniqueCode() {
+  let code;
+  let isUnique = false;
 
-// Function to get order details from REST API
-async function getOrderDetails(token) {
-  console.log(`🔍 Getting order details for token: ${token}`);
-  
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: process.env.SHOP_DOMAIN,
-      path: `/admin/api/2024-01/orders.json?status=any&name=${token}`,
-      method: 'GET',
-      headers: {
-        'X-Shopify-Access-Token': process.env.ADMIN_API_ACCESS_TOKEN
-      }
-    };
+  while (!isUnique) {
+    code = `A${Math.floor(10000000 + Math.random() * 90000000)}`;
+    const existingCode = await codesCollection.findOne({ code });
+    if (!existingCode) {
+      isUnique = true;
+    }
+  }
 
-    console.log('Making REST API request with options:', {
-      hostname: options.hostname,
-      path: options.path,
-      method: options.method
-    });
-
-    const req = https.request(options, (res) => {
-      let data = '';
-
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-
-      res.on('end', () => {
-        try {
-          const response = JSON.parse(data);
-          console.log('REST API response:', JSON.stringify(response, null, 2));
-          if (response.orders && response.orders.length > 0) {
-            resolve(response.orders[0]);
-          } else {
-            reject(new Error('Order not found'));
-          }
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-
-    req.on('error', (error) => {
-      console.error('REST API request error:', error);
-      reject(error);
-    });
-
-    req.end();
-  });
+  return code;
 }
 
-
+// Function to update order with a note
 async function updateOrderWithNote(orderId, note) {
-  console.log('Starting updateOrderWithNote function...');
-  console.log(orderId, note);
-  // Using the exact format from Shopify's webhook data
   const graphqlQuery = {
     query: `mutation orderUpdate($input: OrderInput!) {
       orderUpdate(input: $input) {
@@ -167,145 +137,76 @@ async function updateOrderWithNote(orderId, note) {
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
       let data = '';
-      
+
       res.on('data', chunk => {
         data += chunk;
-        console.log('Receiving data chunk:', chunk.toString());
       });
 
       res.on('end', () => {
         try {
           const response = JSON.parse(data);
-          console.log('GraphQL Response:', response);
-          
           if (response.data?.orderUpdate?.order?.note) {
-            console.log('✅ Order note updated successfully to:', response.data.orderUpdate.order.note);
             resolve(response.data.orderUpdate);
           } else {
-            console.error('❌ Failed to update order note:', response);
             reject(new Error('Failed to update order note'));
           }
         } catch (error) {
-          console.error('❌ Error parsing response:', error);
           reject(error);
         }
       });
     });
 
     req.on('error', (error) => {
-      console.error('❌ Request error:', error);
       reject(error);
     });
 
-    const requestBody = JSON.stringify(graphqlQuery);
-    console.log('📝 Sending GraphQL mutation for order:', orderId);
-    req.write(requestBody);
+    req.write(JSON.stringify(graphqlQuery));
     req.end();
-    res.status(200).send('OK');
   });
 }
 
-// Add this helper function to test the API directly
-async function testAPI() {
+// Function to process the order
+async function processOrder(orderId) {
   try {
-    const testOrder = {
-      id: '6095205400898',  // Use your latest order ID
-      note: 'Test note from API 2'
-    };
-    
-    console.log('Testing API with order:', testOrder);
-    const result = await updateOrderWithNote(testOrder.id, testOrder.note);
-    console.log('API test result:', result);
+    const code = await generateUniqueCode();
+    await codesCollection.insertOne({ orderId, code });
+    const note = `Verification Code: ${code}`;
+    await updateOrderWithNote(orderId, note);
+    console.log(`✅ Processed order ${orderId} with code ${code}`);
   } catch (error) {
-    console.error('API test failed:', error);
+    console.error(`❌ Error processing order ${orderId}:`, error);
   }
 }
 
-// Add a test endpoint
-app.get('/test-api', async (req, res) => {
-  await testAPI();
-  res.send('API test completed - check logs');
-});
-
-// Update the retry operation function
-async function retryOperation(operation, maxAttempts = 3) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`\nAttempt ${attempt} of ${maxAttempts}`);
-    try {
-      const result = await operation();
-      console.log('Operation successful');
-      return result;
-    } catch (error) {
-      console.error(`Attempt ${attempt} failed:`, error);
-      if (attempt === maxAttempts) {
-        throw error;
-      }
-      console.log('Retrying...');
-      // Wait 2 seconds before retrying
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-  }
-}
-
+// Webhook handler for order creation
 app.post('/webhook/orders-create', async (req, res) => {
   console.log('\n🔔 NEW WEBHOOK REQUEST');
-  
-  // Send immediate response to Shopify
-  
 
   try {
     const webhookData = JSON.parse(req.body.toString('utf8'));
-    console.log(webhookData);
-    // Skip test webhooks
-    if (webhookData.test === true) {
-      console.log('📝 Skipping test webhook');
-      return;
-    }
-
     const orderId = webhookData.id?.toString();
+
     if (!orderId) {
       console.error('❌ No order ID found in webhook data');
+      res.status(400).send('No order ID found');
       return;
     }
 
-    console.log('Processing order:', {
-      id: orderId,
-      order_number: webhookData.order_number,
-      financial_status: webhookData.financial_status
-    });
-
-    // Keep the process alive for async operation
-    const keepAlive = setInterval(() => {
-      console.log('Still processing...');
-    }, 1000);
-
-    try {
-      const note = `Verification Code: A${Math.floor(10000000 + Math.random() * 90000000)}`;
-      console.log(`📝 Generated note for order ${orderId}: ${note}`);
-        await updateOrderWithNote(orderId, note);
-        console.log('✅ Order note updated successfully');
-    } finally {
-      clearInterval(keepAlive);
-    }
-
+    await processOrder(orderId);
+    res.status(200).send('OK');
   } catch (error) {
     console.error('❌ Webhook handler error:', error);
+    res.status(500).send('Internal Server Error');
   }
 });
 
-// Keep the process alive
-process.on('unhandledRejection', (error) => {
-  console.error('Unhandled Rejection:', error);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-});
-
-// Add health check endpoint
+// Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-// Export the Express app for Vercel's serverless function handling
-module.exports = app;
+// Start the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server is running on port ${PORT}`);
+});

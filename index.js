@@ -184,10 +184,53 @@ async function updateOrderWithNote(orderId, note) {
   });
 }
 
+// Function to send code to Comics Lounge API
+async function sendCodeToComicsLounge(code) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({
+      "membership_code": code
+    });
+
+    const options = {
+      hostname: 'thecomicslounge.com.au',
+      path: '/cs2/api/membership/save_membership_coupon.php',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+
+      res.on('data', chunk => {
+        data += chunk;
+      });
+
+      res.on('end', () => {
+        try {
+          console.log(`✅ Code ${code} sent to Comics Lounge API`);
+          resolve(data);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      console.error(`❌ Error sending code to Comics Lounge API:`, error);
+      reject(error);
+    });
+
+    req.write(payload);
+    req.end();
+  });
+}
+
 // Function to process the order
 async function processOrder(orderId, webhookData) {
   try {
-    // Check if the order contains valid product IDs
     const hasValidProduct = webhookData.line_items?.some(item => 
       ['9805574340930', '9845248131394'].includes(item.product_id.toString())
     );
@@ -197,13 +240,17 @@ async function processOrder(orderId, webhookData) {
       return;
     }
 
-    // Find the first matching product ID
     const matchingItem = webhookData.line_items.find(item => 
       ['9805574340930', '9845248131394'].includes(item.product_id.toString())
     );
 
     const prefix = getCodePrefix(matchingItem.product_id.toString());
     const code = await generateUniqueCode(prefix);
+    
+    // Send code to Comics Lounge API
+    await sendCodeToComicsLounge(code);
+    
+    // Store in MongoDB and update order note
     await codesCollection.insertOne({ orderId, code });
     const note = `Verification Code: ${code}`;
     await updateOrderWithNote(orderId, note);

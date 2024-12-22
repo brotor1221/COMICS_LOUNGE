@@ -92,13 +92,25 @@ function verifyShopifyWebhook(req) {
   return hmacHeader === generatedHash;
 }
 
+// Function to determine code prefix based on product ID
+function getCodePrefix(productId) {
+  switch (productId) {
+    case '9805574340930':
+      return 'A';
+    case '9845248131394':
+      return 'B';
+    default:
+      return null;
+  }
+}
+
 // Function to generate a unique code
-async function generateUniqueCode() {
+async function generateUniqueCode(prefix) {
   let code;
   let isUnique = false;
 
   while (!isUnique) {
-    code = `A${Math.floor(10000000 + Math.random() * 90000000)}`;
+    code = `${prefix}${Math.floor(10000000 + Math.random() * 90000000)}`;
     const existingCode = await codesCollection.findOne({ code });
     if (!existingCode) {
       isUnique = true;
@@ -173,9 +185,25 @@ async function updateOrderWithNote(orderId, note) {
 }
 
 // Function to process the order
-async function processOrder(orderId) {
+async function processOrder(orderId, webhookData) {
   try {
-    const code = await generateUniqueCode();
+    // Check if the order contains valid product IDs
+    const hasValidProduct = webhookData.line_items?.some(item => 
+      ['9805574340930', '9845248131394'].includes(item.product_id.toString())
+    );
+
+    if (!hasValidProduct) {
+      console.log(`⏭️ Skipping order ${orderId}: No matching product IDs`);
+      return;
+    }
+
+    // Find the first matching product ID
+    const matchingItem = webhookData.line_items.find(item => 
+      ['9805574340930', '9845248131394'].includes(item.product_id.toString())
+    );
+
+    const prefix = getCodePrefix(matchingItem.product_id.toString());
+    const code = await generateUniqueCode(prefix);
     await codesCollection.insertOne({ orderId, code });
     const note = `Verification Code: ${code}`;
     await updateOrderWithNote(orderId, note);
@@ -199,7 +227,7 @@ app.post('/webhook/orders-create', async (req, res) => {
       return;
     }
 
-    await processOrder(orderId);
+    await processOrder(orderId, webhookData);
     res.status(200).send('OK');
   } catch (error) {
     console.error('❌ Webhook handler error:', error);
